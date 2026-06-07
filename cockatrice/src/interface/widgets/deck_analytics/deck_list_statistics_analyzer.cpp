@@ -121,24 +121,38 @@ QHash<QString, int> DeckListStatisticsAnalyzer::determineManaProduction(const QS
 {
     QHash<QString, int> manaCounts = {{"W", 0}, {"U", 0}, {"B", 0}, {"R", 0}, {"G", 0}, {"C", 0}};
 
-    QString text = rulesText.toLower(); // Normalize case for matching
+    const QStringList manaSymbols = {"{W}", "{U}", "{B}", "{R}", "{G}", "{C}"};
+    const QRegularExpression nlManaRegex(R"((one|two|three|four|five|six|seven)\s+mana)",
+                                         QRegularExpression::CaseInsensitiveOption);
 
-    // Quick keyword-based checks for any color and colorless mana
-    if (text.contains("{t}: add one mana of any color") || text.contains("add one mana of any color")) {
-        for (const auto &color : {QStringLiteral("W"), QStringLiteral("U"), QStringLiteral("B"), QStringLiteral("R"),
-                                  QStringLiteral("G")}) {
-            manaCounts[color]++;
+    const QStringList lines = rulesText.split('\n');
+    for (const auto &line : lines) {
+        const QString addKeyword = "Add ";
+        int addPos = line.indexOf(addKeyword, 0, Qt::CaseInsensitive);
+        if (addPos == -1) {
+            continue;
         }
-    }
-    if (text.contains("{t}: add {c}") || text.contains("add one colorless mana")) {
-        manaCounts["C"]++;
-    }
+        QString afterAdd = line.mid(addPos + addKeyword.length());
 
-    // Optimized regex for specific mana symbols
-    static const QRegularExpression specificColorRegex(R"(\{T\}:\s*Add\s*\{([WUBRG])\})");
-    QRegularExpressionMatch match = specificColorRegex.match(rulesText);
-    if (match.hasMatch()) {
-        manaCounts[match.captured(1)]++;
+        // Strategy 1: count {X} mana symbols
+        for (const auto &sym : manaSymbols) {
+            manaCounts[sym.mid(1, 1)] += afterAdd.count(sym, Qt::CaseInsensitive);
+        }
+
+        // Strategy 2: natural language mana (e.g. "Add three mana of any one color")
+        QRegularExpressionMatch nlMatch = nlManaRegex.match(afterAdd);
+        if (nlMatch.hasMatch()) {
+            const QHash<QString, int> wordToNumber = {{"one", 1},  {"two", 2}, {"three", 3}, {"four", 4},
+                                                      {"five", 5}, {"six", 6}, {"seven", 7}};
+            QString amountStr = nlMatch.captured(1).toLower();
+            int amount = wordToNumber.value(amountStr, 0);
+            if (amount > 0) {
+                for (const auto &color : {QStringLiteral("W"), QStringLiteral("U"), QStringLiteral("B"),
+                                          QStringLiteral("R"), QStringLiteral("G")}) {
+                    manaCounts[color] += amount;
+                }
+            }
+        }
     }
 
     return manaCounts;
